@@ -12,12 +12,9 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
-import subprocess
 from ultralytics import YOLO
-from sklearn.cluster import KMeans
-from scipy import ndimage
-import imutils
-import json
+import pynvml
+import psutil
 
 # Configuration
 TRAIN_HOURS = 12
@@ -35,9 +32,36 @@ CLS_GAIN = 0.5
 OBJ_GAIN = 1.0
 NUM_BACKGROUND_IMAGES = 10
 BACKGROUND_SCENE_DIR = "background_scene"
-ROI_ANNOTATION_FILE = "background_rois.json"
 
-# Path setup
+################################################################## CONFIGURATION #####################################################################
+pynvml.nvmlInit()
+handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+
+def get_hardware_config():
+    gpu_mem = pynvml.nvmlDeviceGetMemoryInfo(handle).total / (1024**3)
+    gpu_name = pynvml.nvmlDeviceGetName(handle)
+    
+    cpu_cores = psutil.cpu_count(logical=False)
+    logical_cores = psutil.cpu_count(logical=True)
+
+    return { 
+        "GPU_MEMORY": gpu_mem,
+        "GPU_NAME": gpu_name,
+        "CPU_CORES": cpu_cores,
+        "LOGICAL_CORES": logical_cores  
+    }
+
+    
+config = get_hardware_config()
+
+print("\nNVIDIA RTX NOW ARE AVAILABLE\n")
+
+print(f"GPU: {config['GPU_NAME']} | Gpu memory: {config['GPU_MEMORY']:.1f}GB")
+print(f"CPU: {config['CPU_CORES']} CPU cores/{config['LOGICAL_CORES']} Logical cores")
+print(f"Model: yolov8x")
+
+
+################################################################ PATH ######################################################################
 RAW_DATA_DIR = "raw_dataset"
 AUG_DATA_DIR = "augmented_dataset"
 YOLO_DATA_DIR = "yolo_dataset"
@@ -50,123 +74,53 @@ os.makedirs(VAL_DIR, exist_ok=True)
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 os.makedirs(BACKGROUND_SCENE_DIR, exist_ok=True)
 
-# Phase 0: Background ROI annotation
-print("Annotating regions of interest in background scenes...")
-background_rois = {}
-
-# Check if ROI annotations already exist
-if os.path.exists(ROI_ANNOTATION_FILE):
-    with open(ROI_ANNOTATION_FILE, 'r') as f:
-        background_rois = json.load(f)
-    print(f"Loaded existing ROI annotations from {ROI_ANNOTATION_FILE}")
-else:
-    # Manually annotate ROIs for each background image
-    for img_file in os.listdir(BACKGROUND_SCENE_DIR)[:NUM_BACKGROUND_IMAGES]:
-        img_path = os.path.join(BACKGROUND_SCENE_DIR, img_file)
-        if img_file.lower().endswith(('.png', '.jpg', '.jpeg')):
-            img = cv2.imread(img_path)
-            if img is None:
-                continue
-            
-            # Resize for consistent processing
-            img = cv2.resize(img, (640, 640))
-            
-            # Display image for annotation
-            display_img = img.copy()
-            rois = []
-            
-            print(f"\nAnnotating ROIs for: {img_file}")
-            print("Click and drag to draw ROI rectangles. Press 'a' to add, 'd' to delete last, 'n' for next image.")
-            
-            current_roi = []
-            temp_img = display_img.copy()
-            
-            def draw_rois(image, rois_list):
-                img_copy = image.copy()
-                for i, (x1, y1, x2, y2) in enumerate(rois_list):
-                    cv2.rectangle(img_copy, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                    cv2.putText(img_copy, f"ROI {i+1}", (x1, y1-10), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
-                return img_copy
-            
-            cv2.namedWindow("ROI Annotation")
-            
-            def mouse_callback(event, x, y, flags, param):
-                nonlocal current_roi, temp_img
-                if event == cv2.EVENT_LBUTTONDOWN:
-                    current_roi = [x, y]
-                elif event == cv2.EVENT_MOUSEMOVE and len(current_roi) == 2:
-                    temp_img = draw_rois(display_img, rois)
-                    cv2.rectangle(temp_img, (current_roi[0], current_roi[1]), (x, y), (0, 0, 255), 2)
-                elif event == cv2.EVENT_LBUTTONUP:
-                    current_roi.extend([x, y])
-                    # Ensure valid rectangle
-                    if abs(current_roi[0] - current_roi[2]) > 10 and abs(current_roi[1] - current_roi[3]) > 10:
-                        # Normalize coordinates (min, max)
-                        x1 = min(current_roi[0], current_roi[2])
-                        y1 = min(current_roi[1], current_roi[3])
-                        x2 = max(current_roi[0], current_roi[2])
-                        y2 = max(current_roi[1], current_roi[3])
-                        rois.append((x1, y1, x2, y2))
-                        temp_img = draw_rois(display_img, rois)
-                    current_roi = []
-            
-            cv2.setMouseCallback("ROI Annotation", mouse_callback)
-            
-            while True:
-                cv2.imshow("ROI Annotation", temp_img)
-                key = cv2.waitKey(1) & 0xFF
-                
-                if key == ord('a'):
-                    # Add current ROI
-                    if len(current_roi) == 4:
-                        # Normalize coordinates
-                        x1 = min(current_roi[0], current_roi[2])
-                        y1 = min(current_roi[1], current_roi[3])
-                        x2 = max(current_roi[0], current_roi[2])
-                        y2 = max(current_roi[1], current_roi[3])
-                        rois.append((x1, y1, x2, y2))
-                        temp_img = draw_rois(display_img, rois)
-                        current_roi = []
-                
-                elif key == ord('d'):
-                    # Delete last ROI
-                    if rois:
-                        rois.pop()
-                        temp_img = draw_rois(display_img, rois)
-                
-                elif key == ord('n'):
-                    # Next image
-                    break
-            
-            cv2.destroyAllWindows()
-            
-            # Save ROIs for this background
-            background_rois[img_file] = rois
-            
-            # Save visualization
-            roi_vis = draw_rois(img, rois)
-            vis_path = os.path.join(BACKGROUND_SCENE_DIR, f"roi_{img_file}")
-            cv2.imwrite(vis_path, roi_vis)
-            print(f"Saved ROI visualization: {vis_path}")
-            print(f"Annotated {len(rois)} ROIs for {img_file}")
-    
-    # Save ROI annotations to file
-    with open(ROI_ANNOTATION_FILE, 'w') as f:
-        json.dump(background_rois, f)
-    print(f"Saved ROI annotations to {ROI_ANNOTATION_FILE}")
-
-# Load background images
-background_images = {}
+# Phase 0: Background fitting and ROI detection
+print("Analyzing background scene and detecting ROIs...")
+background_images = []
 for img_file in os.listdir(BACKGROUND_SCENE_DIR)[:NUM_BACKGROUND_IMAGES]:
     img_path = os.path.join(BACKGROUND_SCENE_DIR, img_file)
-    if img_file.lower().endswith(('.png', '.jpg', '.jpeg')) and not img_file.startswith("roi_"):
+    if img_file.lower().endswith(('.png', '.jpg', '.jpeg')):
         img = cv2.imread(img_path)
         if img is not None:
             img = cv2.resize(img, (640, 640))
-            background_images[img_file] = img
+            background_images.append(img)
 
-print(f"Loaded {len(background_images)} background images with ROI annotations")
+if not background_images:
+    print("Error: No background images found in background_scene directory")
+    exit()
+
+# Compute median background
+median_background = np.median(background_images, axis=0).astype(np.uint8)
+cv2.imwrite("median_background.jpg", median_background)
+
+# Detect ROIs using background subtraction
+foreground_masks = []
+for img in background_images:
+    diff = cv2.absdiff(img, median_background)
+    gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 25, 255, cv2.THRESH_BINARY)
+    thresh = cv2.dilate(thresh, None, iterations=2)
+    foreground_masks.append(thresh)
+
+combined_mask = np.max(foreground_masks, axis=0)
+combined_mask = cv2.erode(combined_mask, None, iterations=1)
+
+# Pure OpenCV contour detection (no imutils needed)
+contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+rois = []
+for c in contours:
+    if cv2.contourArea(c) > 1000:
+        x, y, w, h = cv2.boundingRect(c)
+        rois.append((x, y, x+w, y+h))
+
+# Save ROI visualization
+roi_vis = median_background.copy()
+for (x1, y1, x2, y2) in rois:
+    cv2.rectangle(roi_vis, (x1, y1), (x2, y2), (0, 255, 0), 2)
+cv2.imwrite("background_rois.jpg", roi_vis)
+
+print(f"Detected {len(rois)} regions of interest in background")
 
 # Phase 1: Target placement and auto-labeling
 print("Starting target placement and labeling process...")
@@ -186,26 +140,14 @@ def place_target_in_roi(background, target, roi):
     pos_x = x1 + np.random.randint(0, max(1, roi_width - new_width))
     pos_y = y1 + np.random.randint(0, max(1, roi_height - new_height))
     
-    # Blend target with background (with alpha if available)
-    if resized_target.shape[2] == 4:  # Has alpha channel
-        alpha = resized_target[:, :, 3] / 255.0
-        alpha = np.expand_dims(alpha, axis=2)
-        alpha = np.repeat(alpha, 3, axis=2)
-        resized_target_rgb = resized_target[:, :, :3]
-        
-        # Extract ROI region
-        roi_region = background[pos_y:pos_y+new_height, pos_x:pos_x+new_width]
-        
-        # Blend
-        blended = resized_target_rgb * alpha + roi_region * (1.0 - alpha)
-        background[pos_y:pos_y+new_height, pos_x:pos_x+new_width] = blended.astype(np.uint8)
-    else:
-        # Without alpha channel, simply overwrite
-        background[pos_y:pos_y+new_height, pos_x:pos_x+new_width] = resized_target
+    # Blend target with background
+    for c in range(0, 3):
+        background[pos_y:pos_y+new_height, pos_x:pos_x+new_width, c] = \
+            resized_target[:, :, c] * (resized_target[:, :, 3]/255.0) + \
+            background[pos_y:pos_y+new_height, pos_x:pos_x+new_width, c] * (1.0 - resized_target[:, :, 3]/255.0)
     
     return background, (pos_x, pos_y, pos_x+new_width, pos_y+new_height)
 
-# Augmentation transforms
 transform = A.Compose([
     A.HorizontalFlip(p=0.8),
     A.VerticalFlip(p=0.5),
@@ -255,32 +197,44 @@ for class_name in os.listdir(RAW_DATA_DIR):
                 img_path = os.path.join(class_dir, img_file)
                 target_img = cv2.imread(img_path, cv2.IMREAD_UNCHANGED)
                 
+                if target_img is None:
+                    print(f"Warning: Failed to read image {img_path}")
+                    continue
+                    
                 # Add alpha channel if missing
+                if len(target_img.shape) < 3:
+                    continue
                 if target_img.shape[2] == 3:
                     target_img = cv2.cvtColor(target_img, cv2.COLOR_BGR2BGRA)
+                elif target_img.shape[2] == 1:
+                    target_img = cv2.cvtColor(target_img, cv2.COLOR_GRAY2BGRA)
                 
                 for aug_idx in range(100):
-                    # Select random background image
-                    bg_file = np.random.choice(list(background_images.keys()))
-                    bg_img = background_images[bg_file].copy()
+                    # Select random background from scene images
+                    bg_idx = np.random.randint(0, len(background_images))
+                    bg_img = background_images[bg_idx].copy()
                     
-                    # Select random ROI from this background's annotations
-                    rois = background_rois.get(bg_file, [])
-                    if not rois:
-                        # If no ROIs, use entire image
-                        roi = (0, 0, bg_img.shape[1], bg_img.shape[0])
+                    # Select random ROI for target placement
+                    if rois:
+                        roi_idx = np.random.randint(0, len(rois))
+                        roi = rois[roi_idx]
                     else:
-                        roi = rois[np.random.randint(0, len(rois))]
+                        # Fallback if no ROIs detected
+                        roi = (0, 0, bg_img.shape[1], bg_img.shape[0])
                     
                     # Place target in background
                     composite_img, bbox = place_target_in_roi(bg_img, target_img, roi)
                     
                     # Apply augmentations
-                    transformed = transform(
-                        image=composite_img,
-                        bboxes=[bbox],
-                        class_labels=[class_name]
-                    )
+                    try:
+                        transformed = transform(
+                            image=composite_img,
+                            bboxes=[bbox],
+                            class_labels=[class_name]
+                        )
+                    except Exception as e:
+                        print(f"Transform error: {e}")
+                        continue
                     
                     aug_img = transformed['image']
                     aug_bboxes = transformed['bboxes']
