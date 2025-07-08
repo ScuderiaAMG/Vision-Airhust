@@ -1,0 +1,19 @@
+<launch>
+    <!-- 启动第一个脚本 -->
+    <node name="script1" pkg="" type="bash" 
+          args="-c 'python3 /home/legion/Vision-Airhust/haarcascadetest.py; exec bash'" 
+          launch-prefix="gnome-terminal --">
+    </node>
+
+    <!-- 启动第二个脚本 -->
+    <node name="script2" pkg="" type="bash" 
+          args="-c 'python3 /home/legion/Vision-Airhust/hogsvm_test.py; exec bash'" 
+          launch-prefix="gnome-terminal --">
+    </node>
+
+    <!-- 启动第三个脚本 -->
+    <node name="script3" pkg="" type="bash" 
+          args="-c 'python3 /home/legion/Vision-Airhust/yolov3test.py; exec bash'" 
+          launch-prefix="gnome-terminal --">
+    </node>
+</launch>
