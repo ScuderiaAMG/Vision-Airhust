@@ -5,18 +5,14 @@ import time
 import glob
 import psutil
 
-# Load YOLOv3 model from PyTorch Hub
 model = torch.hub.load('ultralytics/yolov5', 'yolov5s').eval().cuda()
 
-# Set target processing speed (8 FPS)
 TARGET_FPS = 8
 FRAME_INTERVAL = 1.0 / TARGET_FPS
 
-# Define GPU utilization limiter
 def limit_gpu_usage(target_utilization=0.3):
     torch.cuda.set_per_process_memory_fraction(target_utilization)
 
-# Image processing function
 def process_images(image_folder):
     image_paths = glob.glob(os.path.join(image_folder, "*.[jJ][pP][gG]")) + \
                  glob.glob(os.path.join(image_folder, "*.[pP][nN][gG]"))
@@ -30,10 +26,8 @@ def process_images(image_folder):
             img = Image.open(path).convert('RGB')
             results = model(img, size=640)
             
-            # Count face detections
             detection_count += int(0 in results.pred[0][:, -1].unique().tolist())
             
-            # Maintain 8 FPS rate
             time.sleep(max(FRAME_INTERVAL - (time.time() % FRAME_INTERVAL), 0))
             
         except Exception as e:
@@ -43,9 +37,7 @@ def process_images(image_folder):
     end_time = time.time()
     return detection_count, total_images, end_time - start_time
 
-# Main execution
 if __name__ == "__main__":
-    # Set GPU memory limit
     limit_gpu_usage(0.3)
     
     IMAGE_FOLDER = "/home/legion/dataset/file"

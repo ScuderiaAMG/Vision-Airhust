@@ -19,10 +19,9 @@ def process_image(path, face_cascade):
         return False
 
 def main():
-    # 初始化Haar分类器
     face_cascade = cv.CascadeClassifier(cv.data.haarcascades + 'haarcascade_frontalface_default.xml')
     
-    IMAGE_FOLDER = "/home/legion/dataset/file"  # Replace with your image folder path
+    IMAGE_FOLDER = "/home/legion/dataset/file" 
     print(f"Processing images in folder: {IMAGE_FOLDER}")
     
     image_paths = [os.path.join(IMAGE_FOLDER, f) for f in os.listdir(IMAGE_FOLDER) 
@@ -32,9 +31,9 @@ def main():
     detection_results = []
     
     start_time = time.time()
-    frame_interval = 1.0 / 8  # 8 FPS目标
+    frame_interval = 1.0 / 8  
     
-    with Pool(10) as pool:  # 使用10核CPU
+    with Pool(10) as pool:
         process_func = partial(process_image, face_cascade=face_cascade)
         
         for result in pool.imap_unordered(process_func, image_paths):
