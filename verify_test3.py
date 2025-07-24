@@ -10,7 +10,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-MODEL_PATH = '/home/legion/D/checkpoints/model_final.pt'
+MODEL_PATH = '/home/legion/D/checkpoints/model_5h.pt'
 IMAGE_DIR = '/home/legion/dataset/hubei'
 NUM_CLASSES = 16
 CLASS_LABELS = ['camel', 'chair', 'dolphin', 'lion', 'hamster', 'maple', 'orange', 'orchid', 
