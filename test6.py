@@ -31,8 +31,8 @@ WARMUP_EPOCHS = 3
 BOX_GAIN = 0.05
 CLS_GAIN = 0.5
 OBJ_GAIN = 1.0
-NUM_BACKGROUND_IMAGES = 10
-BACKGROUND_SCENE_DIR = "background_scene"
+NUM_BACKGROUND_IMAGES = 17
+BACKGROUND_SCENE_DIR = "/home/legion/dataset/background_scene"
 MAX_VRAM_USAGE = 6.5
 
 def get_hardware_config():
@@ -61,12 +61,12 @@ def get_hardware_config():
 
 config = get_hardware_config()
 
-RAW_DATA_DIR = "raw_dataset"
-AUG_DATA_DIR = "augmented_dataset"
-YOLO_DATA_DIR = "yolo_dataset"
+RAW_DATA_DIR = "/home/legion/dataset/raw_dataset"
+AUG_DATA_DIR = "/home/legion/dataset/augmented_dataset"
+YOLO_DATA_DIR = "/home/legion/dataset/yolo_dataset"
 TRAIN_DIR = os.path.join(YOLO_DATA_DIR, "train")
 VAL_DIR = os.path.join(YOLO_DATA_DIR, "val")
-CHECKPOINT_DIR = "yolo_checkpoints"
+CHECKPOINT_DIR = "/home/legion/dataset"
 
 os.makedirs(AUG_DATA_DIR, exist_ok=True)
 os.makedirs(TRAIN_DIR, exist_ok=True)
