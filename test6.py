@@ -17,6 +17,8 @@ import pynvml
 import psutil
 import concurrent.futures
 import math
+from ultralytics import __version__ as ultralytics_version
+from packaging import version
 
 TRAIN_HOURS = 96
 CHECKPOINT_INTERVAL = 4 * 3600
@@ -338,7 +340,10 @@ def train_model():
         'warmup_epochs': WARMUP_EPOCHS,
         'box': BOX_GAIN,
         'cls': CLS_GAIN,
-        'obj': OBJ_GAIN,
+        'kobj': OBJ_GAIN,
+        'label_smoothing': None, 
+        'dfl': 1.0,    
+        'close_mosaic': 10,    
         'hsv_h': 0.01,
         'hsv_s': 0.5,
         'hsv_v': 0.3,
@@ -357,6 +362,16 @@ def train_model():
         'plots': True
     }
     
+    if version.parse(ultralytics_version) < version.parse("8.0.0"):
+        train_params['obj'] = OBJ_GAIN
+        train_params['label_smoothing'] = 0.1
+    else:
+        train_params['kobj'] = OBJ_GAIN
+        train_params.pop('label_smoothing', None)
+        train_params['dfl'] = 1.0
+        train_params['close_mosaic'] = 10
+    
+
     start_time = time.time()
     last_checkpoint_time = start_time
     
